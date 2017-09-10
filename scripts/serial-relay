@@ -1,0 +1,5 @@
+#!/bin/sh
+
+pipe="$1"
+link="$2"
+exec socat PTY,link="$link" EXEC:"npiperelay.exe -p -ei $pipe"
