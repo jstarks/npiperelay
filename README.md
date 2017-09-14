@@ -8,6 +8,7 @@ For example, you can:
 
 * Connect to Docker for Windows from the Linux Docker client in WSL
 * Connect interactively to a Hyper-V Linux VM's serial console
+* Use gdb to connect to debug the kernel of a Hyper-V Linux VM
 
 Let me know on Twitter ([@gigastarks](https://twitter.com/gigastarks)) if you come up with more interesting uses.
 
@@ -137,7 +138,8 @@ Refer to your VM Linux distribution's instructions for enabling the serial conso
 
 ### Connecting to the serial port
 
-For this step, WSL must be running elevated
+For this step, WSL must be running elevated or your Windows user must be in the
+Hyper-V Administrators group.
 
 #### Directly via socat
 
@@ -164,6 +166,18 @@ $ screen $HOME/foo-pty                                 # Attaches to the serial 
 ```
 
 See the `screen` documentation (`man screen`) for more details.
+
+## Debugging the kernel of a Hyper-V Linux VM
+
+Follow the same steps to enable the COM port for your VM, then run the serial
+relay as though you were going to run `screen` to connect to the serial console.
+
+Next, run gdb and connect to the serial port:
+
+```bash
+gdb ./vmlinux
+target remote /home/<myuser>/foo-pty
+```
 
 ## Custom usage
 
