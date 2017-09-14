@@ -77,8 +77,18 @@ func (f *overlappedFile) Write(b []byte) (int, error) {
 }
 
 func (f *overlappedFile) Close() error {
-	windows.Close(f.h)
+	err := windows.Close(f.h)
+	if err != nil {
+		panic(err)
+	}
 	f.h = 0
+	for _, h := range f.e {
+		err := windows.Close(h)
+		if err != nil {
+			panic(err)
+		}
+	}
+	f.e = nil
 	return nil
 }
 
