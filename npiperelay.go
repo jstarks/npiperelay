@@ -1,10 +1,13 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"io"
 	"log"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -40,6 +43,49 @@ func dialPipe(p string, poll bool) (*overlappedFile, error) {
 	}
 }
 
+func dialPort(p int, poll bool) (*overlappedFile, error) {
+	if p < 0 || p > 65535 {
+		return nil, errors.New("Invalid port value")
+	}
+
+	for {
+		h, err := windows.Socket(windows.AF_INET, windows.SOCK_STREAM, 0)
+		if err != nil {
+			return nil, err
+		}
+
+		// Create a SockaddrInet4 for connecting to
+		sa := &windows.SockaddrInet4{Addr: [4]byte{0x7F, 0x00, 0x00, 0x01}, Port: p}
+		if err != nil {
+			return nil, err
+		}
+
+		// Bind to a randomly assigned port
+		err = windows.Bind(h, &windows.SockaddrInet4{})
+		if err != nil {
+			return nil, err
+		}
+
+		conn := newOverlappedFile(h)
+
+		_, err = conn.asyncIo(func(h windows.Handle, n *uint32, o *windows.Overlapped) error {
+			return windows.ConnectEx(h, sa, nil, 0, nil, o)
+		})
+		err = os.NewSyscallError("connectEx", err)
+
+		if err == nil {
+			return conn, nil
+		}
+
+		if poll && os.IsNotExist(err) {
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+
+		return nil, err
+	}
+}
+
 func underlyingError(err error) error {
 	if serr, ok := err.(*os.SyscallError); ok {
 		return serr.Err
@@ -62,6 +108,39 @@ func main() {
 	conn, err := dialPipe(args[0], *poll)
 	if err != nil {
 		log.Fatalln(err)
+	}
+
+	if !strings.HasPrefix("//./", args[0]) {
+		tmp := make([]byte, 22) // 5 bytes for ascii port number, 1 for newline, 16 for nonce
+
+		var port int
+		nonce := make([]byte, 16)
+
+		// Check if file is a LibAssuane socket
+		_, err := conn.Read(tmp)
+		if err != nil {
+			log.Fatalln("Could not open socket", err)
+		}
+
+		for i, c := range tmp {
+			// Find the new line
+			if c == 0x0A {
+				port, _ = strconv.Atoi(string(tmp[:i]))
+				copy(nonce, tmp[i+1:])
+
+				log.Printf("Port: %d, Nonce: %X", port, nonce)
+				break
+			}
+		}
+
+		_ = conn.Close()
+
+		conn, err = dialPort(port, *poll)
+
+		_, err = conn.Write(nonce)
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	if *verbose {
