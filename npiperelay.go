@@ -128,7 +128,9 @@ func main() {
 				port, _ = strconv.Atoi(string(tmp[:i]))
 				copy(nonce, tmp[i+1:])
 
-				log.Printf("Port: %d, Nonce: %X", port, nonce)
+				if *verbose {
+					log.Printf("Port: %d, Nonce: %X", port, nonce)
+				}
 				break
 			}
 		}
