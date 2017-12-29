@@ -17,6 +17,11 @@ import (
 
 const cERROR_PIPE_NOT_CONNECTED syscall.Errno = 233
 
+const WSAECONNREFUSED syscall.Errno = 10061
+const WSAENETUNREACH syscall.Errno = 10051
+const WSAETIMEDOUT syscall.Errno = 10060
+const ERROR_CONNECTION_REFUSED syscall.Errno = 1225
+
 var (
 	poll            = flag.Bool("p", false, "poll until the the named pipe exists")
 	closeWrite      = flag.Bool("s", false, "send a 0-byte message to the pipe after EOF on stdin")
@@ -30,17 +35,13 @@ func dialPipe(p string, poll bool) (*overlappedFile, error) {
 	if err != nil {
 		return nil, err
 	}
-	for {
-		h, err := windows.CreateFile(&p16[0], windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil, windows.OPEN_EXISTING, windows.FILE_FLAG_OVERLAPPED, 0)
-		if err == nil {
-			return newOverlappedFile(h), nil
-		}
-		if poll && os.IsNotExist(err) {
-			time.Sleep(200 * time.Millisecond)
-			continue
-		}
-		return nil, &os.PathError{Path: p, Op: "open", Err: err}
+
+	h, err := windows.CreateFile(&p16[0], windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil, windows.OPEN_EXISTING, windows.FILE_FLAG_OVERLAPPED, 0)
+	if err == nil {
+		return newOverlappedFile(h), nil
 	}
+
+	return nil, err
 }
 
 func dialPort(p int, poll bool) (*overlappedFile, error) {
@@ -48,42 +49,32 @@ func dialPort(p int, poll bool) (*overlappedFile, error) {
 		return nil, errors.New("Invalid port value")
 	}
 
-	for {
-		h, err := windows.Socket(windows.AF_INET, windows.SOCK_STREAM, 0)
-		if err != nil {
-			return nil, err
-		}
-
-		// Create a SockaddrInet4 for connecting to
-		sa := &windows.SockaddrInet4{Addr: [4]byte{0x7F, 0x00, 0x00, 0x01}, Port: p}
-		if err != nil {
-			return nil, err
-		}
-
-		// Bind to a randomly assigned port
-		err = windows.Bind(h, &windows.SockaddrInet4{})
-		if err != nil {
-			return nil, err
-		}
-
-		conn := newOverlappedFile(h)
-
-		_, err = conn.asyncIo(func(h windows.Handle, n *uint32, o *windows.Overlapped) error {
-			return windows.ConnectEx(h, sa, nil, 0, nil, o)
-		})
-		err = os.NewSyscallError("connectEx", err)
-
-		if err == nil {
-			return conn, nil
-		}
-
-		if poll && os.IsNotExist(err) {
-			time.Sleep(200 * time.Millisecond)
-			continue
-		}
-
+	h, err := windows.Socket(windows.AF_INET, windows.SOCK_STREAM, 0)
+	if err != nil {
 		return nil, err
 	}
+
+	// Create a SockaddrInet4 for connecting to
+	sa := &windows.SockaddrInet4{Addr: [4]byte{0x7F, 0x00, 0x00, 0x01}, Port: p}
+
+	// Bind to a randomly assigned local port
+	err = windows.Bind(h, &windows.SockaddrInet4{})
+	if err != nil {
+		return nil, err
+	}
+
+	// Wrap our socket up to be properly handled
+	conn := newOverlappedFile(h)
+
+	// Connect to the LibAssuan socket using overlapped ConnectEx operation
+	_, err = conn.asyncIo(func(h windows.Handle, n *uint32, o *windows.Overlapped) error {
+		return windows.ConnectEx(h, sa, nil, 0, nil, o)
+	})
+	if err == nil {
+		return conn, nil
+	}
+
+	return nil, err
 }
 
 func underlyingError(err error) error {
@@ -105,44 +96,73 @@ func main() {
 		log.Println("connecting to", args[0])
 	}
 
-	conn, err := dialPipe(args[0], *poll)
-	if err != nil {
-		log.Fatalln(err)
-	}
+	var conn *overlappedFile
+	var err error
 
-	if !strings.HasPrefix("//./", args[0]) {
-		tmp := make([]byte, 22) // 5 bytes for ascii port number, 1 for newline, 16 for nonce
+	// Loop only if we're polling the named pipe or socket
+	for {
+		conn, err = dialPipe(args[0], *poll)
 
-		var port int
-		nonce := make([]byte, 16)
-
-		// Check if file is a LibAssuane socket
-		_, err := conn.Read(tmp)
-		if err != nil {
-			log.Fatalln("Could not open socket", err)
+		if *poll && os.IsNotExist(err) {
+			time.Sleep(200 * time.Millisecond)
+			continue
 		}
 
-		for i, c := range tmp {
-			// Find the new line
-			if c == 0x0A {
-				port, _ = strconv.Atoi(string(tmp[:i]))
-				copy(nonce, tmp[i+1:])
+		if err != nil {
+			err = &os.PathError{Path: args[0], Op: "open", Err: err}
+			log.Fatalln(err)
+		}
 
-				if *verbose {
-					log.Printf("Port: %d, Nonce: %X", port, nonce)
+		// Not a named pipe, so attempt to read contents and connect to a TCP port for LibAssaaun
+		if !strings.HasPrefix("//./", args[0]) {
+			tmp := make([]byte, 22) // 5 bytes for ascii port number, 1 for newline, 16 for nonce
+
+			var port int
+			var nonce [16]byte
+
+			_, err := conn.Read(tmp)
+			if err != nil {
+				log.Fatalln("Could not open file", err)
+			}
+
+			for i, c := range tmp {
+				// Find the new line
+				if c == 0x0A {
+					port, err = strconv.Atoi(string(tmp[:i]))
+					if err != nil {
+						log.Fatalln(err)
+					}
+
+					copy(nonce[:], tmp[i+1:])
+
+					if *verbose {
+						log.Printf("Port: %d, Nonce: %X", port, nonce)
+					}
+					break
 				}
-				break
+			}
+
+			_ = conn.Close()
+
+			conn, err = dialPort(port, *poll)
+
+			if *poll && (err == WSAETIMEDOUT || err == WSAECONNREFUSED || err == WSAENETUNREACH || err == ERROR_CONNECTION_REFUSED) {
+				time.Sleep(200 * time.Millisecond)
+				continue
+			}
+
+			err = os.NewSyscallError("ConnectEx", err)
+
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			_, err = conn.Write(nonce[:])
+			if err != nil {
+				log.Fatal(err)
 			}
 		}
-
-		_ = conn.Close()
-
-		conn, err = dialPort(port, *poll)
-
-		_, err = conn.Write(nonce)
-		if err != nil {
-			log.Fatal(err)
-		}
+		break
 	}
 
 	if *verbose {
