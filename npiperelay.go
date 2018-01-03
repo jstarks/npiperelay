@@ -1,13 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"flag"
 	"io"
 	"log"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -28,6 +28,7 @@ var (
 	closeOnEOF      = flag.Bool("ep", false, "terminate on EOF reading from the pipe, even if there is more data to write")
 	closeOnStdinEOF = flag.Bool("ei", false, "terminate on EOF reading from stdin, even if there is more data to write")
 	verbose         = flag.Bool("v", false, "verbose output on stderr")
+	assuan          = flag.Bool("a", false, "treat the target as a libassuan file socket (Used by GnuPG)")
 )
 
 func dialPipe(p string, poll bool) (*overlappedFile, error) {
@@ -113,37 +114,37 @@ func main() {
 			log.Fatalln(err)
 		}
 
-		// Not a named pipe, so attempt to read contents and connect to a TCP port for LibAssaaun
-		if !strings.HasPrefix("//./", args[0]) {
-			tmp := make([]byte, 22) // 5 bytes for ascii port number, 1 for newline, 16 for nonce
-
+		// LibAssaaun file socket: Attempt to read contents of the target file and connect to a TCP port
+		if *assuan {
 			var port int
 			var nonce [16]byte
 
-			_, err := conn.Read(tmp)
+			reader := bufio.NewReader(conn)
+
+			// Read the target port number from the first line
+			tmp, _, err := reader.ReadLine()
+			port, err = strconv.Atoi(string(tmp))
 			if err != nil {
-				log.Fatalln("Could not open file", err)
+				log.Fatalln(err)
 			}
 
-			for i, c := range tmp {
-				// Find the new line
-				if c == 0x0A {
-					port, err = strconv.Atoi(string(tmp[:i]))
-					if err != nil {
-						log.Fatalln(err)
-					}
+			// Read the rest of the nonce from the file
+			n, err := reader.Read(nonce[:])
+			if err != nil {
+				log.Fatalln(err)
+			}
 
-					copy(nonce[:], tmp[i+1:])
+			if n != 16 {
+				log.Fatalf("Read incorrect number of bytes for nonce. Expected 16, got %d (0x%X)", n, nonce)
+			}
 
-					if *verbose {
-						log.Printf("Port: %d, Nonce: %X", port, nonce)
-					}
-					break
-				}
+			if *verbose {
+				log.Printf("Port: %d, Nonce: %X", port, nonce)
 			}
 
 			_ = conn.Close()
 
+			// Try to connect to the libassaun TCP socket hosted on localhost
 			conn, err = dialPort(port, *poll)
 
 			if *poll && (err == WSAETIMEDOUT || err == WSAECONNREFUSED || err == WSAENETUNREACH || err == ERROR_CONNECTION_REFUSED) {
