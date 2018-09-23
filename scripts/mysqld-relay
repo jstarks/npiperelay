@@ -1,0 +1,21 @@
+#!/bin/sh
+
+if [ -z "${SUDO_USER+x}" ]; then
+  echo "mysqld-relay must be run via 'sudo'"
+  exit 1
+fi
+
+if [ ! -e /var/run/mysqld ]; then
+  mkdir /var/run/mysqld
+fi
+
+if [ ! $(getent group exists mysql) ]; then
+  groupadd mysql
+fi
+
+if $(id -Gn $SUDO_USER | grep -qv '\bmysql\b'); then
+  usermod -aG mysql $SUDO_USER
+  echo "*** Log out and back in to enable 'mysql' group membership ***"
+fi
+
+exec socat UNIX-LISTEN:/var/run/mysqld/mysqld.sock,fork,group=mysql,umask=007 EXEC:"npiperelay.exe -ep -s //./pipe/MYSQL",nofork
