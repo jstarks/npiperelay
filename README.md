@@ -7,6 +7,7 @@ use Windows named pipes from the Windows Subsystem for Linux (WSL).
 For example, you can:
 
 * Connect to Docker for Windows from the Linux Docker client in WSL
+* Connect to MySQL Server running as a Windows service
 * Connect interactively to a Hyper-V Linux VM's serial console
 * Use gdb to connect to debug the kernel of a Hyper-V Linux VM
 
@@ -104,6 +105,45 @@ $ sudo adduser <my_user> docker
 ```
 
 Then open a new WSL window to reset your group membership.
+
+## Connect to MySQL Server running as a Windows service
+
+If you run MySQL Server as a Windows service, you can configure it to
+communicate through TCP, named pipes or shared memory. If you use named
+pipes, connecting to MySQL from WSL is very similar to connecting
+to Docker.
+
+The `mysqld-relay` script is designed to be run in a `sudo` shell.
+Before creating the relay, it will try to configure your environment
+(if it has not been configured yet) by:
+
+* creating `/var/run/mysqld/`,
+* creating a `mysql` group, and
+* adding your user account to the `mysql` group.
+
+You can of course pull out just the npiperelay command if you don't
+need any of the above checks.
+
+Note that if you need to enter a password for sudo, the following
+command will fail because of the lack of password input:
+
+```bash
+$ sudo mysqld-relay &
+```
+
+In that case, you can run it like this:
+
+```bash
+user@machine:~$ sudo -s
+[sudo] password for user:
+root@machine:~# mysqld-relay &
+root@machine:~# exit
+user@machine:~$ _
+```
+
+Now you can use the Linux `mysql` command line client or any other
+Linux process that expects to talk to MySQL Server through
+`/var/run/mysqld/mysqld.sock`.
 
 ## Connecting to a Hyper-V Linux VM's serial console
 
