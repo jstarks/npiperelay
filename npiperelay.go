@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -28,13 +29,17 @@ func dialPipe(p string, poll bool) (*overlappedFile, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	h, err := windows.CreateFile(&p16[0], windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil, windows.OPEN_EXISTING, windows.FILE_FLAG_OVERLAPPED, 0)
-	if err == nil {
-		return newOverlappedFile(h), nil
+	for {
+		h, err := windows.CreateFile(&p16[0], windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil, windows.OPEN_EXISTING, windows.FILE_FLAG_OVERLAPPED, 0)
+		if err == nil {
+			return newOverlappedFile(h), nil
+		}
+		if poll && os.IsNotExist(err) {
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+		return nil, &os.PathError{Path: p, Op: "open", Err: err}
 	}
-
-	return nil, err
 }
 
 func dialPort(p int, poll bool) (*overlappedFile, error) {
@@ -70,6 +75,66 @@ func dialPort(p int, poll bool) (*overlappedFile, error) {
 	return nil, err
 }
 
+// LibAssaun file socket: Attempt to read contents of the target file and connect to a TCP port
+func dialAssuan(p string, poll bool) (*overlappedFile, error) {
+	for {
+		conn, err := dialPipe(p, poll)
+
+		if err != nil {
+			return nil, err
+		}
+
+		var port int
+		var nonce [16]byte
+
+		reader := bufio.NewReader(conn)
+
+		// Read the target port number from the first line
+		tmp, _, err := reader.ReadLine()
+		port, err = strconv.Atoi(string(tmp))
+		if err != nil {
+			return nil, err
+		}
+
+		// Read the rest of the nonce from the file
+		n, err := reader.Read(nonce[:])
+		if err != nil {
+			return nil, err
+		}
+
+		if n != 16 {
+			err = fmt.Errorf("Read incorrect number of bytes for nonce. Expected 16, got %d (0x%X)", n, nonce)
+			return nil, err
+		}
+
+		if *verbose {
+			log.Printf("Port: %d, Nonce: %X", port, nonce)
+		}
+
+		conn.Close()
+
+		// Try to connect to the libassaun TCP socket hosted on localhost
+		conn, err = dialPort(port, poll)
+
+		if poll && (err == windows.WSAETIMEDOUT || err == windows.WSAECONNREFUSED || err == windows.WSAENETUNREACH || err == windows.ERROR_CONNECTION_REFUSED) {
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+
+		if err != nil {
+			err = os.NewSyscallError("ConnectEx", err)
+			return nil, err
+		}
+
+		_, err = conn.Write(nonce[:])
+		if err != nil {
+			return nil, err
+		}
+
+		return conn, nil
+	}
+}
+
 func underlyingError(err error) error {
 	if serr, ok := err.(*os.SyscallError); ok {
 		return serr.Err
@@ -92,70 +157,13 @@ func main() {
 	var conn *overlappedFile
 	var err error
 
-	// Loop only if we're polling the named pipe or socket
-	for {
+	if !*assuan {
 		conn, err = dialPipe(args[0], *poll)
-
-		if *poll && os.IsNotExist(err) {
-			time.Sleep(200 * time.Millisecond)
-			continue
-		}
-
-		if err != nil {
-			err = &os.PathError{Path: args[0], Op: "open", Err: err}
-			log.Fatalln(err)
-		}
-
-		// LibAssaaun file socket: Attempt to read contents of the target file and connect to a TCP port
-		if *assuan {
-			var port int
-			var nonce [16]byte
-
-			reader := bufio.NewReader(conn)
-
-			// Read the target port number from the first line
-			tmp, _, err := reader.ReadLine()
-			port, err = strconv.Atoi(string(tmp))
-			if err != nil {
-				log.Fatalln(err)
-			}
-
-			// Read the rest of the nonce from the file
-			n, err := reader.Read(nonce[:])
-			if err != nil {
-				log.Fatalln(err)
-			}
-
-			if n != 16 {
-				log.Fatalf("Read incorrect number of bytes for nonce. Expected 16, got %d (0x%X)", n, nonce)
-			}
-
-			if *verbose {
-				log.Printf("Port: %d, Nonce: %X", port, nonce)
-			}
-
-			_ = conn.Close()
-
-			// Try to connect to the libassaun TCP socket hosted on localhost
-			conn, err = dialPort(port, *poll)
-
-			if *poll && (err == windows.WSAETIMEDOUT || err == windows.WSAECONNREFUSED || err == windows.WSAENETUNREACH || err == windows.ERROR_CONNECTION_REFUSED) {
-				time.Sleep(200 * time.Millisecond)
-				continue
-			}
-
-			err = os.NewSyscallError("ConnectEx", err)
-
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			_, err = conn.Write(nonce[:])
-			if err != nil {
-				log.Fatal(err)
-			}
-		}
-		break
+	} else {
+		conn, err = dialAssuan(args[0], *poll)
+	}
+	if err != nil {
+		log.Fatalln(err)
 	}
 
 	if *verbose {
