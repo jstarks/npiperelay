@@ -15,6 +15,9 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// How long to sleep between failures while polling
+const pollTimeout = 200 * time.Millisecond
+
 var (
 	poll            = flag.Bool("p", false, "poll until the the named pipe exists")
 	closeWrite      = flag.Bool("s", false, "send a 0-byte message to the pipe after EOF on stdin")
@@ -35,7 +38,7 @@ func dialPipe(p string, poll bool) (*overlappedFile, error) {
 			return newOverlappedFile(h), nil
 		}
 		if poll && os.IsNotExist(err) {
-			time.Sleep(200 * time.Millisecond)
+			time.Sleep(pollTimeout)
 			continue
 		}
 		return nil, &os.PathError{Path: p, Op: "open", Err: err}
@@ -68,56 +71,57 @@ func dialPort(p int, poll bool) (*overlappedFile, error) {
 	_, err = conn.asyncIo(func(h windows.Handle, n *uint32, o *windows.Overlapped) error {
 		return windows.ConnectEx(h, sa, nil, 0, nil, o)
 	})
-	if err == nil {
-		return conn, nil
+	if err != nil {
+		return nil, err
 	}
 
-	return nil, err
+	return conn, nil
 }
 
 // LibAssaun file socket: Attempt to read contents of the target file and connect to a TCP port
 func dialAssuan(p string, poll bool) (*overlappedFile, error) {
-	for {
-		conn, err := dialPipe(p, poll)
+	pipeConn, err := dialPipe(p, poll)
+	if err != nil {
+		return nil, err
+	}
 
-		if err != nil {
-			return nil, err
-		}
+	var port int
+	var nonce [16]byte
 
-		var port int
-		var nonce [16]byte
+	reader := bufio.NewReader(pipeConn)
 
-		reader := bufio.NewReader(conn)
-
-		// Read the target port number from the first line
-		tmp, _, err := reader.ReadLine()
+	// Read the target port number from the first line
+	tmp, _, err := reader.ReadLine()
+	if err == nil {
 		port, err = strconv.Atoi(string(tmp))
-		if err != nil {
-			return nil, err
-		}
+	}
+	if err != nil {
+		return nil, err
+	}
 
-		// Read the rest of the nonce from the file
-		n, err := reader.Read(nonce[:])
-		if err != nil {
-			return nil, err
-		}
+	// Read the rest of the nonce from the file
+	n, err := reader.Read(nonce[:])
+	if err != nil {
+		return nil, err
+	}
 
-		if n != 16 {
-			err = fmt.Errorf("Read incorrect number of bytes for nonce. Expected 16, got %d (0x%X)", n, nonce)
-			return nil, err
-		}
+	if n != 16 {
+		err = fmt.Errorf("Read incorrect number of bytes for nonce. Expected 16, got %d (0x%X)", n, nonce)
+		return nil, err
+	}
 
-		if *verbose {
-			log.Printf("Port: %d, Nonce: %X", port, nonce)
-		}
+	if *verbose {
+		log.Printf("Port: %d, Nonce: %X", port, nonce)
+	}
 
-		conn.Close()
+	pipeConn.Close()
 
+	for {
 		// Try to connect to the libassaun TCP socket hosted on localhost
-		conn, err = dialPort(port, poll)
+		conn, err := dialPort(port, poll)
 
 		if poll && (err == windows.WSAETIMEDOUT || err == windows.WSAECONNREFUSED || err == windows.WSAENETUNREACH || err == windows.ERROR_CONNECTION_REFUSED) {
-			time.Sleep(200 * time.Millisecond)
+			time.Sleep(pollTimeout)
 			continue
 		}
 
