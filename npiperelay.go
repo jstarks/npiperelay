@@ -9,18 +9,10 @@ import (
 	"os"
 	"strconv"
 	"sync"
-	"syscall"
 	"time"
 
 	"golang.org/x/sys/windows"
 )
-
-const cERROR_PIPE_NOT_CONNECTED syscall.Errno = 233
-
-const WSAECONNREFUSED syscall.Errno = 10061
-const WSAENETUNREACH syscall.Errno = 10051
-const WSAETIMEDOUT syscall.Errno = 10060
-const ERROR_CONNECTION_REFUSED syscall.Errno = 1225
 
 var (
 	poll            = flag.Bool("p", false, "poll until the the named pipe exists")
@@ -147,7 +139,7 @@ func main() {
 			// Try to connect to the libassaun TCP socket hosted on localhost
 			conn, err = dialPort(port, *poll)
 
-			if *poll && (err == WSAETIMEDOUT || err == WSAECONNREFUSED || err == WSAENETUNREACH || err == ERROR_CONNECTION_REFUSED) {
+			if *poll && (err == windows.WSAETIMEDOUT || err == windows.WSAECONNREFUSED || err == windows.WSAENETUNREACH || err == windows.ERROR_CONNECTION_REFUSED) {
 				time.Sleep(200 * time.Millisecond)
 				continue
 			}
@@ -196,7 +188,7 @@ func main() {
 	}()
 
 	_, err = io.Copy(os.Stdout, conn)
-	if underlyingError(err) == windows.ERROR_BROKEN_PIPE || underlyingError(err) == cERROR_PIPE_NOT_CONNECTED {
+	if underlyingError(err) == windows.ERROR_BROKEN_PIPE || underlyingError(err) == windows.ERROR_PIPE_NOT_CONNECTED {
 		// The named pipe is closed and there is no more data to read. Since
 		// named pipes are not bidirectional, there is no way for the other side
 		// of the pipe to get more data, so do not wait for the stdin copy to
