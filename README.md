@@ -10,6 +10,7 @@ For example, you can:
 * Connect to MySQL Server running as a Windows service
 * Connect interactively to a Hyper-V Linux VM's serial console
 * Use gdb to connect to debug the kernel of a Hyper-V Linux VM
+* Connect to Windows SSH agent via named pipe
 
 Let me know on Twitter ([@gigastarks](https://twitter.com/gigastarks)) if you come up with more interesting uses.
 
@@ -27,7 +28,17 @@ Basic steps:
 
 To build the binary, you will need a version of [Go](https://golang.org). You can use a Windows build of Go or, as outlined here, you can use a Linux build and cross-compile the Windows binary directly from WSL.
 
-## Building npiperelay.exe
+## Building on Windows
+
+```powershell
+git clone https://github.com/jstarks/npiperelay.git
+cd npiperelay
+go build -o npiperelay.exe
+```
+
+Copy `npiperelay.exe` to a location on your path. WSL 2 will read your path and find it.
+
+## Building npiperelay.exe in WSL
 
 Once you have Go installed (and your GOPATH configured), you need to download and install the tool. This is a little tricky because we are building the tool for Windows from WSL:
 
@@ -217,6 +228,21 @@ Next, run gdb and connect to the serial port:
 ```bash
 gdb ./vmlinux
 target remote /home/<myuser>/foo-pty
+```
+
+## Connect to Windows SSH agent
+
+Windows provides [OpenSSH](https://docs.microsoft.com/en-us/windows-server/administration/openssh/openssh_overview) including `ssh-agent`. If you have [configured](https://docs.microsoft.com/en-us/windows-server/administration/openssh/openssh_server_configuration) the agent to auto start and added your keys, WSL2 can connect to it using a named pipe via `SSH_AUTH_SOCK`.
+
+Add the following to a `.bashrc` or `.zshrc` configuration to setup WSL `ssh-agent` to use Windows agent.
+
+```bash
+export SSH_AUTH_SOCK=${HOME}/.ssh/agent.sock
+ss -a | grep -q $SSH_AUTH_SOCK
+if [ $? -ne 0   ]; then
+    rm -f ${SSH_AUTH_SOCK}
+    ( setsid socat UNIX-LISTEN:${SSH_AUTH_SOCK},fork EXEC:"npiperelay.exe -ei -s //./pipe/openssh-ssh-agent",nofork & ) >/dev/null 2>&1
+fi
 ```
 
 ## Custom usage
