@@ -1,0 +1,17 @@
+builds:
+- binary: npiperelay
+  goos:
+    - windows
+  goarch:
+    - 386
+    - amd64
+
+archives:
+  - id: zip
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+
+changelog:
+  sort: asc
