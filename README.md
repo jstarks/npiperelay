@@ -15,12 +15,12 @@ Let me know on Twitter ([@gigastarks](https://twitter.com/gigastarks)) if you co
 
 # Installation
 
-Binaries for npiperelay are not currently available. You have to build from source. With Go, this is not too difficult.
+Binaries for npiperelay are available [here](https://githubc. You can also build from source. With Go, this is not too difficult.
 
 Basic steps:
 
-1. Install Go.
-2. Download and build the Windows binary and add it to your path.
+1. Grab `npiperelay.exe` from a release, or clone the repo and build it.
+2. Put it somewhere in your path.
 3. Install socat.
 
 ## Installing Go
