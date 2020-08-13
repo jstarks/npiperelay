@@ -70,7 +70,7 @@ Basic steps:
 1. Start the Docker relay.
 2. Use the `docker` CLI as usual.
 
-### Staring the Docker relay
+### Starting the Docker relay
 
 For this to work, you will need to be running in an elevated WSL session, or you will need to configure Docker to allow your Windows user access without elevating.
 
