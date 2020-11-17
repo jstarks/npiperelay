@@ -36,6 +36,13 @@ func dialPipe(p string, poll bool) (*overlappedFile, error) {
 			time.Sleep(200 * time.Millisecond)
 			continue
 		}
+		if err.Error() == "All pipe instances are busy." {
+			if *verbose {
+				log.Printf("All pipe instances are busy. Waiting 200 milliseconds to retry")
+			}
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
 		return nil, &os.PathError{Path: p, Op: "open", Err: err}
 	}
 }
