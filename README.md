@@ -15,13 +15,34 @@ Let me know on Twitter ([@gigastarks](https://twitter.com/gigastarks)) if you co
 
 # Installation
 
-Binaries for npiperelay are not currently available. You have to build from source. With Go, this is not too difficult.
+## Install npiperelay
 
-Basic steps:
+Binaries for npiperelay are automatically built for each release. 
+You can get a zip with the latest [32bit](https://github.com/jstarks/npiperelay/releases/latest/download/npiperelay_windows_386.zip) 
+or [64bit](https://github.com/jstarks/npiperelay/releases/latest/download/npiperelay_windows_amd64.zip) 
+executable from the [releases](https://github.com/jstarks/npiperelay/releases) page or...
 
-1. Install Go.
-2. Download and build the Windows binary and add it to your path.
-3. Install socat.
+### Using chocolatey:
+
+> choco install npiperelay -y
+
+### Using Winget:
+
+> winget install --id=jstarks.npiperelay -e
+
+## Installing socat
+
+For all of the examples below, you will need the excellent `socat` tool. Your WSL distribution should
+have it available; install it from WSL by running
+
+```bash
+$ sudo apt install socat
+```
+
+or the equivalent.
+
+
+## Building npiperelay from source 
 
 ## Installing Go
 
@@ -45,17 +66,6 @@ $ sudo ln -s /mnt/c/Users/<myuser>/go/bin/npiperelay.exe /usr/local/bin/npiperel
 ```
 
 You may be tempted to just put the real binary directly into `/usr/local/bin`, but this will not work because Windows currently cannot run binaries that exist in the Linux namespace -- they have to reside somewhere under the Windows portion of the file system.
-
-## Installing socat
-
-For all of the examples below, you will need the excellent `socat` tool. Your WSL distribution should
-have it available; install it by running
-
-```bash
-$ sudo apt install socat
-```
-
-or the equivalent.
 
 # Usage
 
