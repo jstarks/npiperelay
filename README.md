@@ -15,9 +15,7 @@ Let me know on Twitter ([@gigastarks](https://twitter.com/gigastarks)) if you co
 
 # Installation
 
-## Install npiperelay
-
-Binaries for npiperelay are automatically built for each release. 
+Binaries for npiperelay are automatically built for each release.
 You can get a zip with the latest [32bit](https://github.com/jstarks/npiperelay/releases/latest/download/npiperelay_windows_386.zip) 
 or [64bit](https://github.com/jstarks/npiperelay/releases/latest/download/npiperelay_windows_amd64.zip) 
 executable from the [releases](https://github.com/jstarks/npiperelay/releases) page or...
