@@ -24,23 +24,24 @@ executable from the [releases](https://github.com/jstarks/npiperelay/releases) p
 
 ### Using chocolatey:
 
-> choco install npiperelay -y
+```powershell
+choco install npiperelay -y
+```
 
 ### Using Winget:
 
-> winget install --id=jstarks.npiperelay -e
+```powershell
+winget install --id=jstarks.npiperelay -e
+```
 
 ## Installing socat
 
 For all of the examples below, you will need the excellent `socat` tool. Your WSL distribution should
-have it available; install it from WSL by running
+have it available; install it from WSL by running something like:
 
 ```bash
 $ sudo apt install socat
 ```
-
-or the equivalent.
-
 
 ## Building npiperelay from source 
 
