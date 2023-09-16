@@ -15,7 +15,7 @@ import (
 const cERROR_PIPE_NOT_CONNECTED syscall.Errno = 233
 
 var (
-	poll            = flag.Bool("p", false, "poll until the the named pipe exists")
+	poll            = flag.Bool("p", true, "poll until the the named pipe exists")
 	closeWrite      = flag.Bool("s", false, "send a 0-byte message to the pipe after EOF on stdin")
 	closeOnEOF      = flag.Bool("ep", false, "terminate on EOF reading from the pipe, even if there is more data to write")
 	closeOnStdinEOF = flag.Bool("ei", false, "terminate on EOF reading from stdin, even if there is more data to write")
@@ -27,6 +27,7 @@ func dialPipe(p string, poll bool) (*overlappedFile, error) {
 	if err != nil {
 		return nil, err
 	}
+	var errCount int
 	for {
 		h, err := windows.CreateFile(&p16[0], windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil, windows.OPEN_EXISTING, windows.FILE_FLAG_OVERLAPPED, 0)
 		if err == nil {
@@ -34,6 +35,11 @@ func dialPipe(p string, poll bool) (*overlappedFile, error) {
 		}
 		if poll && os.IsNotExist(err) {
 			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+		if err != nil && errCount < 200 {
+			time.Sleep(200 * time.Millisecond)
+			errCount++
 			continue
 		}
 		return nil, &os.PathError{Path: p, Op: "open", Err: err}
